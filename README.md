@@ -17,13 +17,19 @@ REST API и встроенный веб-интерфейс для админис
 
 ## Запуск
 
-1. Создайте базу данных (или разрешите приложению создать её автоматически):
+Приложение требует базу данных. Есть два варианта:
+
+### Вариант 1: MySQL (основной, production)
+
+1. Установите MySQL 8 и запустите сервер.
+
+2. Создайте базу данных:
 
 ```sql
 CREATE DATABASE clinic_schedule CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-2. При необходимости задайте параметры подключения переменными окружения:
+3. Задайте параметры подключения переменными окружения:
 
 ```text
 DB_URL=jdbc:mysql://localhost:3306/clinic_schedule?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
@@ -31,19 +37,167 @@ DB_USERNAME=root
 DB_PASSWORD=ваш_пароль
 ```
 
-3. Запустите приложение из корня проекта:
+4. Запустите приложение:
 
 ```powershell
 cd "C:\Users\user\Documents\Hospital Appointment and Medical Administration System"
 .\mvnw.cmd spring-boot:run
 ```
 
+### Вариант 2: H2 in-memory (локальная разработка без MySQL)
+
+Если MySQL не установлен, используйте профиль `h2` с встроенной базой H2:
+
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=h2"
+```
+
 Приложение будет доступно на `http://localhost:8080`. Откройте этот адрес в
 браузере — откроется экран входа в веб-интерфейс. REST API остаётся по тем же
 путям `/api/**`.
 
-По умолчанию Hibernate использует `ddl-auto=update` и сам создаёт таблицы.
+По умолчанию Hibernate использует `ddl-auto=update` (MySQL) или `create-drop` (H2)
+и сам создаёт таблицы. Демонстрационные данные загружаются из `src/main/resources/data.sql`.
 Для production задайте `JPA_DDL_AUTO=validate` и используйте миграции (Flyway/Liquibase).
+
+## ER-диаграмма и модель данных
+
+В проекте 9 связанных таблиц MySQL с внешними ключами (требование — не менее 5):
+
+```mermaid
+erDiagram
+    User ||--o{ User_roles : contains
+    Role ||--o{ User_roles : assigned_to
+    User ||--|| Doctor : has_profile
+    Specialization ||--o{ Doctor : has_doctors
+    Doctor ||--o{ WorkingSchedule : has_schedules
+    Doctor ||--o{ Appointment : has_appointments
+    Patient ||--o{ Appointment : has_appointments
+    Appointment ||--o{ AppointmentService : includes
+    Service ||--o{ AppointmentService : used_in
+
+    User {
+        long id PK
+        string username UK
+        string password_hash
+        string full_name
+        string email
+        string phone
+        boolean enabled
+        datetime created_at
+        datetime updated_at
+    }
+
+    Role {
+        long id PK
+        string name UK
+        string description
+        datetime created_at
+        datetime updated_at
+    }
+
+    User_roles {
+        long user_id FK
+        long role_id FK
+    }
+
+    Patient {
+        long id PK
+        string first_name
+        string last_name
+        string middle_name
+        date birth_date
+        string phone UK
+        string email
+        string address
+        string notes
+        datetime created_at
+        datetime updated_at
+    }
+
+    Specialization {
+        long id PK
+        string name UK
+        string description
+        datetime created_at
+        datetime updated_at
+    }
+
+    Doctor {
+        long id PK
+        long user_id UK FK
+        long specialization_id FK
+        string first_name
+        string last_name
+        string middle_name
+        string phone
+        string email
+        string office_number
+        string bio
+        boolean active
+        datetime created_at
+        datetime updated_at
+    }
+
+    WorkingSchedule {
+        long id PK
+        long doctor_id FK
+        string day_of_week
+        time start_time
+        time end_time
+        int slot_duration_minutes
+        boolean active
+        datetime created_at
+        datetime updated_at
+    }
+
+    Appointment {
+        long id PK
+        long patient_id FK
+        long doctor_id FK
+        date appointment_date
+        time start_time
+        time end_time
+        string status
+        string reason
+        string notes
+        decimal total_price
+        datetime created_at
+        datetime updated_at
+    }
+
+    Service {
+        long id PK
+        string name UK
+        string description
+        decimal price
+        int duration_minutes
+        boolean active
+        datetime created_at
+        datetime updated_at
+    }
+
+    AppointmentService {
+        long id PK
+        long appointment_id FK
+        long service_id FK
+        int quantity
+        decimal unit_price
+        datetime created_at
+        datetime updated_at
+    }
+```
+
+### Демонстрационные данные
+
+Файл `src/main/resources/data.sql` содержит начальные справочные данные:
+- Роли: `ADMIN`, `DOCTOR`, `RECEPTIONIST`
+- Специализации: Кардиология, Неврология, Терапия, Педиатрия, Стоматология
+- Услуги: консультации, ЭКГ, ЭхоКГ (включая бесплатную услугу с ценой 0.00)
+- Пациенты: 5 demonstration-записей
+
+Пользователи и врачи не вставляются через `data.sql`, потому что пароли должны быть BCrypt-хешами. Администратор создаётся автоматически при первом запуске (`admin` / `admin123`). Дополнительных пользователей и врачей можно создать через веб-интерфейс или API (`/api/admin/users`, `/api/doctors`).
+
 
 ## Аутентификация и роли (этап 2)
 
